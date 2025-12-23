@@ -1,6 +1,0 @@
-numpy
-tqdm
-scikit-learn
-mediapipe
-opencv-python
-torch

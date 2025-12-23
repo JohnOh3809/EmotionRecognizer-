@@ -1,0 +1,8 @@
+numpy
+tqdm
+scikit-learn
+mediapipe
+opencv-python-headless
+torch
+ultralytics
+opencv-python

@@ -39,19 +39,9 @@ def infer_label_from_path(p: str) -> str:
         if x in CLASS_TO_IDX:
             return x
     return "unknown"
-
-def collect_videos(data_root: str) -> List[Tuple[str, str, str, int]]:
-    """
-    Returns list of (video_path, split, label_str, label_idx)
-    """
-    all_files = []
-    for ext in VIDEO_EXTS:
-        all_files.extend(glob.glob(os.path.join(data_root, "**", f"*{ext}"), recursive=True))
-
+def collect_videos(data_root: str):
     items = []
-    for f in all_files:
-        if not is_video_file(f):
-            continue
+    for f in glob.glob(os.path.join(data_root, "**", "*.avi"), recursive=True):
         split = infer_split_from_path(f)
         label = infer_label_from_path(f)
         if split == "unknown" or label == "unknown":
