@@ -41,10 +41,14 @@ def infer_label_from_path(p: str) -> str:
     return "unknown"
 def collect_videos(data_root: str):
     items = []
-    for f in glob.glob(os.path.join(data_root, "**", "*.avi"), recursive=True):
-        split = infer_split_from_path(f)
-        label = infer_label_from_path(f)
-        if split == "unknown" or label == "unknown":
-            continue
-        items.append((f, split, label, CLASS_TO_IDX[label]))
+    for root, _, files in os.walk(data_root):
+        for fn in files:
+            fp = os.path.join(root, fn)
+            if not is_video_file(fp):
+                continue
+            split = infer_split_from_path(fp)
+            label = infer_label_from_path(fp)
+            if split == "unknown" or label == "unknown":
+                continue
+            items.append((fp, split, label, CLASS_TO_IDX[label]))
     return items
