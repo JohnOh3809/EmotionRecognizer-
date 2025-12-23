@@ -49,16 +49,21 @@ def run_epoch(model, loader, optimizer, criterion, device, train: bool):
     total_loss = 0.0
 
     for x, y in tqdm(loader, leave=False):
-        x = x.to(device)
-        y = y.to(device)
+        # prefer non-blocking transfers when pin_memory=True on the DataLoader
+        x = x.to(device, non_blocking=True)
+        y = y.to(device, non_blocking=True)
 
         if train:
             optimizer.zero_grad(set_to_none=True)
 
-        logits = model(x)
-        loss = criterion(logits, y)
-
-        if train:
+        # During evaluation we don't need gradients — wrap to avoid autograd overhead
+        if not train:
+            with torch.no_grad():
+                logits = model(x)
+                loss = criterion(logits, y)
+        else:
+            logits = model(x)
+            loss = criterion(logits, y)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()

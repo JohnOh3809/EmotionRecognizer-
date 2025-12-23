@@ -21,6 +21,15 @@ except AttributeError:
 
 from utils import md5_of_path, ensure_dir
 
+# Try to reduce OpenCV / ffmpeg noisy logs which can slow processing
+try:
+    if hasattr(cv2, 'utils') and hasattr(cv2.utils, 'logging'):
+        cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+    elif hasattr(cv2, 'setLogLevel'):
+        cv2.setLogLevel(cv2.ERROR)
+except Exception:
+    pass
+
 
 def make_cache_path(cache_dir: str, video_path: str, seq_len: int) -> str:
     h = md5_of_path(video_path)
