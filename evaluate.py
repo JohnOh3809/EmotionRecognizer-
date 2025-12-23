@@ -1,86 +1,96 @@
-
-import os, argparse, json
+import os
+import argparse
+import platform
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
-from sklearn.metrics import confusion_matrix, classification_report
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 
 from caer_dataset import collect_videos, CLASSES
-from model import BiLSTMSkeletonEmotion
 from pose_extract import load_or_extract
+from model import BiLSTMSkeletonEmotion
 
-class EvalDataset(torch.utils.data.Dataset):
-    def __init__(self, items, cache_dir, seq_len, target_fps):
-        self.items = items
+class CAERSkeletonDataset(Dataset):
+    def __init__(self, items, split: str, cache_dir: str, seq_len: int, target_fps: int):
+        self.rows = [(vp, y) for (vp, sp, _, y) in items if sp == split]
+        self.split = split
         self.cache_dir = cache_dir
         self.seq_len = seq_len
         self.target_fps = target_fps
 
     def __len__(self):
-        return len(self.items)
+        return len(self.rows)
 
     def __getitem__(self, idx):
-        vp, split, label_str, y = self.items[idx]
-        seq = load_or_extract(self.cache_dir, vp, self.seq_len, self.target_fps, train=False)
-        x = seq.reshape(self.seq_len, -1).astype(np.float32)
-        return torch.from_numpy(x), int(y)
+        video_path, y = self.rows[idx]
+        seq = load_or_extract(
+            cache_dir=self.cache_dir,
+            video_path=video_path,
+            seq_len=self.seq_len,
+            target_fps=self.target_fps,
+            train=False
+        )  # (T,33,3)
+        x = seq.reshape(seq.shape[0], -1)  # (T, 99)
+        x = torch.tensor(x, dtype=torch.float32)
+        y = torch.tensor(y, dtype=torch.long)
+        return x, y
 
 @torch.no_grad()
+def evaluate(model, loader, device):
+    model.eval()
+    all_preds, all_y = [], []
+    for x, y in loader:
+        x = x.to(device)
+        y = y.to(device)
+        logits = model(x)
+        preds = torch.argmax(logits, dim=1)
+        all_preds.extend(preds.cpu().tolist())
+        all_y.extend(y.cpu().tolist())
+    return np.array(all_y), np.array(all_preds)
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data_root", required=True)
-    ap.add_argument("--workdir", default="./runs/caer_skeleton")
-    ap.add_argument("--split", default="test", choices=["train","val","test"])
-    ap.add_argument("--ckpt", default="", help="Path to checkpoint (default: workdir/best.pt)")
-    ap.add_argument("--batch_size", type=int, default=32)
+    ap.add_argument("--data_root", type=str, required=True)
+    ap.add_argument("--workdir", type=str, default="./runs/caer_skeleton")
+    ap.add_argument("--split", type=str, default="test", choices=["train", "val", "test"])
     ap.add_argument("--seq_len", type=int, default=32)
     ap.add_argument("--target_fps", type=int, default=10)
-    ap.add_argument("--num_workers", type=int, default=2)
+    ap.add_argument("--batch_size", type=int, default=64)
+    ap.add_argument("--num_workers", type=int, default=-1)
     args = ap.parse_args()
 
     cache_dir = os.path.join(args.workdir, "pose_cache")
-    ckpt_path = args.ckpt or os.path.join(args.workdir, "best.pt")
+    ckpt_path = os.path.join(args.workdir, "best_model.pt")
     if not os.path.exists(ckpt_path):
-        raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
+        raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}. Train first.")
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    ckpt = torch.load(ckpt_path, map_location="cpu")
-    in_dim = 33 * 3
-    model = BiLSTMSkeletonEmotion(in_dim=in_dim, num_classes=len(CLASSES))
-    model.load_state_dict(ckpt["model"], strict=True)
-    model.to(device).eval()
+    if args.num_workers == -1:
+        num_workers = 0 if platform.system().lower().startswith("win") else 2
+    else:
+        num_workers = args.num_workers
 
     items = collect_videos(args.data_root)
-    split_items = [it for it in items if it[1] == args.split]
-    ds = EvalDataset(split_items, cache_dir, args.seq_len, args.target_fps)
-    dl = DataLoader(ds, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
+    ds = CAERSkeletonDataset(items, args.split, cache_dir, args.seq_len, args.target_fps)
+    loader = DataLoader(ds, batch_size=args.batch_size, shuffle=False, num_workers=num_workers)
 
-    y_true, y_pred = [], []
-    for x, y in dl:
-        x = x.to(device)
-        logits = model(x)
-        pred = torch.argmax(logits, dim=1).cpu().numpy().tolist()
-        y_pred.extend(pred)
-        y_true.extend(y)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    ckpt = torch.load(ckpt_path, map_location=device)
 
-    cm = confusion_matrix(y_true, y_pred, labels=list(range(len(CLASSES))))
-    rep = classification_report(y_true, y_pred, target_names=CLASSES, digits=4)
+    model = BiLSTMSkeletonEmotion(in_dim=33*3, num_classes=len(CLASSES)).to(device)
+    model.load_state_dict(ckpt["model"])
 
-    out = {
-        "split": args.split,
-        "n": len(y_true),
-        "acc": float((np.array(y_true) == np.array(y_pred)).mean()),
-    }
+    y_true, y_pred = evaluate(model, loader, device)
 
-    os.makedirs(args.workdir, exist_ok=True)
-    with open(os.path.join(args.workdir, f"eval_{args.split}.json"), "w") as f:
-        json.dump(out, f, indent=2)
-    np.savetxt(os.path.join(args.workdir, f"confusion_{args.split}.csv"), cm, fmt="%d", delimiter=",")
+    acc = accuracy_score(y_true, y_pred)
+    print(f"Split: {args.split} | Accuracy: {acc:.4f}\n")
 
-    print(json.dumps(out, indent=2))
-    print(rep)
-    print(f"Wrote: eval_{args.split}.json and confusion_{args.split}.csv in {args.workdir}")
+    print("Classification report:")
+    print(classification_report(y_true, y_pred, target_names=CLASSES, digits=4))
+
+    cm = confusion_matrix(y_true, y_pred)
+    print("Confusion matrix (rows=true, cols=pred):")
+    print(cm)
 
 if __name__ == "__main__":
     main()

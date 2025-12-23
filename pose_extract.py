@@ -1,49 +1,26 @@
-
 import os
 import random
-import atexit
 import numpy as np
 import cv2
 from tqdm import tqdm
+
 import mediapipe as mp
+
+# Robust import across MediaPipe package layouts
+try:
+    mp_pose = mp.solutions.pose  # older/typical API
+except AttributeError:
+    # Newer builds sometimes don't expose `solutions` at top-level
+    try:
+        import mediapipe.solutions as mp_solutions
+        mp_pose = mp_solutions.pose
+    except Exception:
+        # Fallback for some installs where solutions live under mediapipe.python
+        from mediapipe.python.solutions import pose as mp_pose
+
 
 from utils import md5_of_path, ensure_dir
 
-_BaseOptions = mp.tasks.BaseOptions
-_PoseLandmarker = mp.tasks.vision.PoseLandmarker
-_PoseLandmarkerOptions = mp.tasks.vision.PoseLandmarkerOptions
-_RunningMode = mp.tasks.vision.RunningMode
-
-_LANDMARKER = None
-
-def _default_model_path() -> str:
-    here = os.path.dirname(os.path.abspath(__file__))
-    return os.environ.get("MP_POSE_TASK_MODEL", os.path.join(here, "models", "pose_landmarker_full.task"))
-
-def get_landmarker():
-    global _LANDMARKER
-    if _LANDMARKER is not None:
-        return _LANDMARKER
-
-    model_path = _default_model_path()
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(
-            f"PoseLandmarker model not found at: {model_path}\n"
-            f"Expected: ./models/pose_landmarker_full.task\n"
-            f"Set MP_POSE_TASK_MODEL to override."
-        )
-
-    options = _PoseLandmarkerOptions(
-        base_options=_BaseOptions(model_asset_path=model_path),
-        running_mode=_RunningMode.VIDEO,
-        num_poses=1,
-        min_pose_detection_confidence=0.5,
-        min_pose_presence_confidence=0.5,
-        min_tracking_confidence=0.5,
-    )
-    _LANDMARKER = _PoseLandmarker.create_from_options(options)
-    atexit.register(lambda: _LANDMARKER.close() if _LANDMARKER is not None else None)
-    return _LANDMARKER
 
 def make_cache_path(cache_dir: str, video_path: str, seq_len: int) -> str:
     h = md5_of_path(video_path)
@@ -63,9 +40,15 @@ def sample_frame_indices(total_frames: int, fps: float, seq_len: int, target_fps
         idx = np.linspace(0, total_frames - 1, seq_len).astype(int)
 
     idx = np.clip(idx, 0, max(total_frames - 1, 0))
-    return np.sort(idx.astype(int))
+    return idx.astype(int)
 
 def normalize_skeleton(seq: np.ndarray) -> np.ndarray:
+    """
+    Normalize to reduce camera effects:
+    - center at mid-hip
+    - scale by shoulder-hip distance
+    seq: (T,33,3) where last dim is (x, y, visibility)
+    """
     seq = seq.copy()
     hip = (seq[:, 23, :2] + seq[:, 24, :2]) / 2.0
     sh  = (seq[:, 11, :2] + seq[:, 12, :2]) / 2.0
@@ -76,7 +59,13 @@ def normalize_skeleton(seq: np.ndarray) -> np.ndarray:
     seq[:, :, 1] = (seq[:, :, 1] - hip[:, 1:2]) / scale
     return seq
 
-def extract_pose_sequence(video_path: str, seq_len: int = 32, target_fps: int = 10, train: bool = False) -> np.ndarray:
+def extract_pose_sequence(
+    video_path: str,
+    seq_len: int = 32,
+    target_fps: int = 10,
+    train: bool = False,
+    model_complexity: int = 1
+) -> np.ndarray:
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise RuntimeError(f"Could not open video: {video_path}")
@@ -87,36 +76,43 @@ def extract_pose_sequence(video_path: str, seq_len: int = 32, target_fps: int = 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frame_idxs = sample_frame_indices(total_frames, fps, seq_len, target_fps, train=train)
 
-    landmarker = get_landmarker()
+    pose = mp_pose.Pose(
+        static_image_mode=False,
+        model_complexity=model_complexity,
+        enable_segmentation=False,
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5
+    )
+
     seq = np.zeros((seq_len, 33, 3), dtype=np.float32)
 
     for t, fi in enumerate(frame_idxs):
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(fi))
-        ok, frame_bgr = cap.read()
-        if not ok or frame_bgr is None:
+        ok, frame = cap.read()
+        if not ok or frame is None:
             continue
-
-        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
-
-        ts_ms = int((fi / fps) * 1000.0)
-        res = landmarker.detect_for_video(mp_image, ts_ms)
-        if not res.pose_landmarks:
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        res = pose.process(rgb)
+        if res.pose_landmarks is None:
             continue
-
-        lms = res.pose_landmarks[0]
-        for k in range(min(33, len(lms))):
-            seq[t, k, 0] = float(lms[k].x)
-            seq[t, k, 1] = float(lms[k].y)
-            v = getattr(lms[k], "visibility", None)
-            if v is None:
-                v = getattr(lms[k], "presence", 0.0)
-            seq[t, k, 2] = float(v)
+        lms = res.pose_landmarks.landmark
+        for k in range(33):
+            seq[t, k, 0] = lms[k].x
+            seq[t, k, 1] = lms[k].y
+            seq[t, k, 2] = lms[k].visibility
 
     cap.release()
+    pose.close()
+
     return normalize_skeleton(seq)
 
-def load_or_extract(cache_dir: str, video_path: str, seq_len: int, target_fps: int, train: bool) -> np.ndarray:
+def load_or_extract(
+    cache_dir: str,
+    video_path: str,
+    seq_len: int,
+    target_fps: int,
+    train: bool
+) -> np.ndarray:
     ensure_dir(cache_dir)
     cp = make_cache_path(cache_dir, video_path, seq_len)
     if os.path.exists(cp):
