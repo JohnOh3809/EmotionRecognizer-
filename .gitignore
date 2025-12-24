@@ -1,1 +1,119 @@
-.venv
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual Environments
+venv/
+venv_deepface/
+env/
+ENV/
+.venv/
+.ENV/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Model Files (too large for git)
+*.pt
+*.pth
+*.h5
+*.hdf5
+*.onnx
+*.pb
+*.tflite
+*.weights
+*.ckpt
+*.safetensors
+
+# YOLO Model Files
+*.pt
+yolo*.pt
+yolov*.pt
+
+# Data Files
+*.npz
+*.npy
+*.pkl
+*.pickle
+*.csv
+*.jsonl
+*.parquet
+
+# Collected Data (user-generated)
+collected_data/
+data_enhanced/
+data_kin_yolo/
+*.npz
+*.npy
+
+# Training Outputs (keep structure, ignore large files)
+runs/**/*.pt
+runs/**/*.npy
+runs/**/*.npz
+runs/**/pose_cache/
+runs/**/checkpoints/
+!runs/**/*.json
+!runs/**/config.json
+
+# DeepFace Cache
+.deepface/
+*.deepface/
+
+# Screenshots
+screenshot_*.png
+screenshot_*.jpg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Logs
+*.log
+logs/
+*.out
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.cache
+
+# Large comparison plots (optional - uncomment if you want to ignore them)
+# comparison_plots/
+# report_figures/
+
+# OneDrive
+~$*
+
+# Environment variables
+.env
+.env.local
+
+# Large data directories
+data/
+datasets/
+*.zip
+*.tar.gz
+*.rar
+
+# Test outputs
+test_outputs/
+outputs/
