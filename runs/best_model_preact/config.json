@@ -1,0 +1,18 @@
+{
+  "architecture": "DeepResidualPreact",
+  "hidden": 256,
+  "num_blocks": 4,
+  "dropout": 0.3,
+  "parameters": 693001,
+  "best_test_acc": 0.27896512935883017,
+  "class_accs": {
+    "angry": 0.17525773195876287,
+    "disgust": 0.33707865168539325,
+    "fear": 0.38461538461538464,
+    "happy": 0.2275132275132275,
+    "neutral": 0.31690140845070425,
+    "sad": 0.31313131313131315,
+    "surprise": 0.21518987341772153,
+    "other": 0.0
+  }
+}
