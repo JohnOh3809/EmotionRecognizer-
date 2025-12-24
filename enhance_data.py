@@ -535,7 +535,7 @@ def process_one(npz_path: Path, out_dir: Path, cfg: ProcCfg) -> Tuple[bool, Dict
         vel=final_vel,
         acc=final_acc,
         time=time_out,
-        meta=np.array([json.dumps(rec)], dtype=np.string_),
+        meta=np.array([json.dumps(rec)], dtype=np.bytes_),
     )
 
     return True, rec, out_path

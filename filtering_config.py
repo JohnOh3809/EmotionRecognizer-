@@ -6,11 +6,11 @@ from pathlib import Path
 # ======================
 
 # CAER dataset root (contains train/validation/test folders)
-CAER_ROOT     = Path("/home/ubuntu/CAER")
-OPENPOSE_ROOT = Path("/home/ubuntu/openpose")
-OUTPUT_ROOT   = Path("/home/ubuntu/temp/caer_openpose")
+CAER_ROOT     = Path("/home/az2/Documents/EmotionRecognizer-/CAER/CAER")
+OPENPOSE_ROOT = Path("/home/az2/Documents/EmotionRecognizer-/openpose")
+OUTPUT_ROOT   = Path("/home/az2/Documents/EmotionRecognizer-/data")
 # YOLO weights
-YOLO_WEIGHTS = Path("./models/yolov8n.pt")
+YOLO_WEIGHTS = Path("./yolov8n-pose.pt")
 
 # ======================
 # VALIDATION (fail early)

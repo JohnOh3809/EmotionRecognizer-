@@ -826,7 +826,7 @@ def main() -> None:
                     keypoints=kps,  # (T,K,17,3)
                     bboxes=bbs,     # (T,K,4)
                     frame_indices=np.array(frame_idx, dtype=np.int32),
-                    meta=np.array([json.dumps(rec)], dtype=np.string_),
+                    meta=np.array([json.dumps(rec)], dtype=np.bytes_),
                 )
                 mf.write(json.dumps(rec) + "\n")
                 mf.flush()
